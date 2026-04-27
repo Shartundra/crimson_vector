@@ -35,3 +35,15 @@ MAX_EXPIRIES_PER_TICKER = 4
 
 # Courtesy delay between yfinance HTTP calls to avoid 429s
 REQUEST_DELAY_SECONDS = 1.5
+
+# ── Interactive Brokers connection ────────────────────────────────────────────
+# TWS live: 7496 | TWS paper: 7497 | IB Gateway live: 4001 | IB Gateway paper: 4002
+IB_HOST = "127.0.0.1"
+IB_PORT = 7497          # change to 7496 for live account
+IB_CLIENT_ID = 10       # any unused client id
+
+# How many expiries to fetch from IB (nearest N)
+IB_MAX_EXPIRIES = 4
+
+# Max strikes to fetch per expiry (centred around ATM). None = all strikes.
+IB_MAX_STRIKES = 30
