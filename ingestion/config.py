@@ -3,35 +3,31 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw"
 
-# Yahoo Finance continuous front-month futures tickers
-FUTURES_TICKERS: dict[str, str] = {
-    "ES": "ES=F",   # E-mini S&P 500
-    "NQ": "NQ=F",   # E-mini Nasdaq-100
-    "CL": "CL=F",   # WTI Crude Oil
-    "GC": "GC=F",   # Gold
-    "SI": "SI=F",   # Silver
-    "ZB": "ZB=F",   # 30-year US Treasury Bond
-    "6E": "6E=F",   # Euro FX
+# ── Interactive Brokers connection ────────────────────────────────────────────
+# TWS live: 7496 | TWS paper: 7497 | IB Gateway live: 4001 | IB Gateway paper: 4002
+IB_HOST = "127.0.0.1"
+IB_PORT = 7497          # change to 7496 for live account
+IB_CLIENT_ID = 10       # any unused client id
+
+# Options fetch settings
+IB_MAX_EXPIRIES = 4     # nearest N expiries to pull
+IB_MAX_STRIKES = 30     # strikes centred around ATM per expiry (None = all)
+
+# Futures history
+IB_HISTORY_DAYS = 30    # calendar days of daily OHLCV to fetch
+
+# ── Supported futures underlyings ─────────────────────────────────────────────
+# symbol → {name, exchange, opt_exchange, currency, multiplier}
+# opt_exchange: exchange used when building FuturesOption contracts
+FUTURES_CONTRACTS: dict[str, dict] = {
+    "ZC": {"name": "Corn",            "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "50"},
+    "ZS": {"name": "Soybeans",        "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "50"},
+    "ZW": {"name": "Wheat",           "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "50"},
+    "ES": {"name": "E-mini S&P 500",  "exchange": "CME",   "opt_exchange": "CME",   "currency": "USD", "multiplier": "50"},
+    "NQ": {"name": "E-mini Nasdaq",   "exchange": "CME",   "opt_exchange": "CME",   "currency": "USD", "multiplier": "20"},
+    "CL": {"name": "Crude Oil (WTI)", "exchange": "NYMEX", "opt_exchange": "NYMEX", "currency": "USD", "multiplier": "1000"},
+    "GC": {"name": "Gold",            "exchange": "COMEX", "opt_exchange": "COMEX", "currency": "USD", "multiplier": "100"},
+    "SI": {"name": "Silver",          "exchange": "COMEX", "opt_exchange": "COMEX", "currency": "USD", "multiplier": "5000"},
+    "ZB": {"name": "30yr T-Bond",     "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "1000"},
+    "6E": {"name": "Euro FX",         "exchange": "CME",   "opt_exchange": "CME",   "currency": "USD", "multiplier": "125000"},
 }
-
-# Equity underlyings for options chain pulls
-EQUITY_TICKERS: list[str] = ["SPY", "QQQ", "AAPL", "TSLA", "AMZN", "GLD"]
-
-# Closest liquid spot proxy for each futures contract.
-# Yahoo Finance does not expose raw cash prices for most futures underlyings;
-# these ETF/index proxies are the best available substitute.
-SPOT_PROXIES: dict[str, str] = {
-    "ES=F": "^GSPC",   # S&P 500 index
-    "NQ=F": "^NDX",    # Nasdaq-100 index
-    "CL=F": "USO",     # Crude oil ETF (no WTI cash on Yahoo)
-    "GC=F": "GLD",     # Gold ETF
-    "SI=F": "SLV",     # Silver ETF
-    "ZB=F": "TLT",     # Long-duration treasury ETF
-    "6E=F": "FXE",     # Euro FX ETF
-}
-
-DEFAULT_HISTORY_PERIOD = "30d"
-MAX_EXPIRIES_PER_TICKER = 4
-
-# Courtesy delay between yfinance HTTP calls to avoid 429s
-REQUEST_DELAY_SECONDS = 1.5
