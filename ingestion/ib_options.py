@@ -35,9 +35,11 @@ util.logToConsole(False)
 # ── connection ────────────────────────────────────────────────────────────────
 
 def connect(host: str = IB_HOST, port: int = IB_PORT, client_id: int = IB_CLIENT_ID) -> IB:
+    # readonly=True is enforced at the API level — TWS will reject any attempt
+    # to place, modify, or cancel orders through this connection.
     ib = IB()
-    ib.connect(host, port, clientId=client_id, timeout=10)
-    logger.info(f"Connected to IB  host={host}  port={port}  clientId={client_id}")
+    ib.connect(host, port, clientId=client_id, timeout=10, readonly=True)
+    logger.info(f"Connected to IB [READ-ONLY]  host={host}  port={port}  clientId={client_id}")
     return ib
 
 
