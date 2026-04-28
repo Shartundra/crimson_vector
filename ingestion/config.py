@@ -36,6 +36,19 @@ MAX_EXPIRIES_PER_TICKER = 4
 # Courtesy delay between yfinance HTTP calls to avoid 429s
 REQUEST_DELAY_SECONDS = 1.5
 
+# ── Barchart OnDemand API ─────────────────────────────────────────────────────
+# Get a key at https://www.barchart.com/ondemand/api
+# Set via env var BARCHART_API_KEY or pass directly to fetch functions.
+import os
+BARCHART_BASE_URL = "https://ondemand.websol.barchart.com"
+BARCHART_API_KEY: str = os.environ.get("BARCHART_API_KEY", "")
+
+# How many active ZC contracts (expiries) to pull options for
+BARCHART_MAX_CONTRACTS = 4
+
+# Courtesy delay between Barchart requests (seconds)
+BARCHART_REQUEST_DELAY = 1.0
+
 # ── Interactive Brokers connection ────────────────────────────────────────────
 # TWS live: 7496 | TWS paper: 7497 | IB Gateway live: 4001 | IB Gateway paper: 4002
 IB_HOST = "127.0.0.1"

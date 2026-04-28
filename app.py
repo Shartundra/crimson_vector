@@ -206,10 +206,10 @@ with st.sidebar:
         help="7497=TWS paper  7496=TWS live  4002=Gateway paper  4001=Gateway live",
     )
     if st.button("🌽  Pull Corn Options (IB)", use_container_width=True):
-        from ingestion.ib_options import fetch_corn_options
+        from ingestion.ib_options import fetch_corn_options as ib_fetch
         with st.spinner("Connecting to IB and fetching corn options…"):
             try:
-                df_ib = fetch_corn_options(port=int(ib_port))
+                df_ib = ib_fetch(port=int(ib_port))
                 if df_ib.empty:
                     st.error("No data returned — check TWS is running and API is enabled.")
                 else:
@@ -217,6 +217,41 @@ with st.sidebar:
                     st.success(f"Fetched {len(df_ib):,} rows from IB.")
             except Exception as e:
                 st.error(f"IB connection failed: {e}")
+
+    st.divider()
+    st.subheader("Barchart OnDemand")
+    bc_key = st.text_input(
+        "API Key",
+        value=st.session_state.get("bc_key", ""),
+        type="password",
+        placeholder="Paste your Barchart key…",
+        help="Get a free key at barchart.com/ondemand/api",
+        key="bc_key_input",
+    )
+    if bc_key:
+        st.session_state["bc_key"] = bc_key
+
+    bc_contracts = st.number_input(
+        "Contracts (expiries) to fetch",
+        min_value=1, max_value=12,
+        value=4, step=1,
+    )
+
+    if st.button("🌽  Pull Corn Options (Barchart)", use_container_width=True):
+        if not bc_key:
+            st.error("Enter your Barchart API key above.")
+        else:
+            from ingestion.barchart_options import fetch_corn_options as bc_fetch
+            with st.spinner("Fetching corn options from Barchart…"):
+                try:
+                    df_bc = bc_fetch(api_key=bc_key, max_contracts=int(bc_contracts))
+                    if df_bc.empty:
+                        st.error("No data returned — check your API key and subscription.")
+                    else:
+                        st.cache_data.clear()
+                        st.success(f"Fetched {len(df_bc):,} rows from Barchart.")
+                except Exception as e:
+                    st.error(f"Barchart request failed: {e}")
 
     st.divider()
     data_dir_exists = DATA_RAW_DIR.exists()
