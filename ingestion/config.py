@@ -15,3 +15,19 @@ IB_MAX_STRIKES = 30     # strikes centred around ATM per expiry (None = all)
 
 # Futures history
 IB_HISTORY_DAYS = 30    # calendar days of daily OHLCV to fetch
+
+# ── Supported futures underlyings ─────────────────────────────────────────────
+# symbol → {name, exchange, opt_exchange, currency, multiplier}
+# opt_exchange: exchange used when building FuturesOption contracts
+FUTURES_CONTRACTS: dict[str, dict] = {
+    "ZC": {"name": "Corn",            "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "50"},
+    "ZS": {"name": "Soybeans",        "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "50"},
+    "ZW": {"name": "Wheat",           "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "50"},
+    "ES": {"name": "E-mini S&P 500",  "exchange": "CME",   "opt_exchange": "CME",   "currency": "USD", "multiplier": "50"},
+    "NQ": {"name": "E-mini Nasdaq",   "exchange": "CME",   "opt_exchange": "CME",   "currency": "USD", "multiplier": "20"},
+    "CL": {"name": "Crude Oil (WTI)", "exchange": "NYMEX", "opt_exchange": "NYMEX", "currency": "USD", "multiplier": "1000"},
+    "GC": {"name": "Gold",            "exchange": "COMEX", "opt_exchange": "COMEX", "currency": "USD", "multiplier": "100"},
+    "SI": {"name": "Silver",          "exchange": "COMEX", "opt_exchange": "COMEX", "currency": "USD", "multiplier": "5000"},
+    "ZB": {"name": "30yr T-Bond",     "exchange": "CBOT",  "opt_exchange": "CBOT",  "currency": "USD", "multiplier": "1000"},
+    "6E": {"name": "Euro FX",         "exchange": "CME",   "opt_exchange": "CME",   "currency": "USD", "multiplier": "125000"},
+}

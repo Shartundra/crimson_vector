@@ -1,15 +1,14 @@
 """
-IBKR data fetcher for CBOT corn (ZC) — futures OHLCV + options chain.
+IBKR data fetcher — futures OHLCV + options chain for any supported underlying.
 
 Requires TWS or IB Gateway running with API access enabled:
   Edit → Global Configuration → API → Settings
-  ✓ Enable ActiveX and Socket Clients
-  ✗ Read-Only API (uncheck)
+  ✓ Enable ActiveX and Socket Clients   ✗ Read-Only API (uncheck)
 
 Ports: 7497 TWS paper | 7496 TWS live | 4002 Gateway paper | 4001 Gateway live
 
 Standalone:
-    python -m ingestion.ib_options
+    python -m ingestion.ib_options --symbol ZC
 """
 
 import time
@@ -20,6 +19,7 @@ from loguru import logger
 
 from ingestion.config import (
     DATA_RAW_DIR,
+    FUTURES_CONTRACTS,
     IB_CLIENT_ID,
     IB_HISTORY_DAYS,
     IB_HOST,
@@ -48,24 +48,69 @@ def disconnect(ib: IB) -> None:
     logger.info("Disconnected from IB")
 
 
-# ── corn futures contract ─────────────────────────────────────────────────────
+# ── contract resolution ───────────────────────────────────────────────────────
 
-def get_front_month_corn(ib: IB) -> Future:
-    """Qualify and return the front-month ZC futures contract."""
-    contract = Future(symbol="ZC", exchange="CBOT", currency="USD")
-    [qualified] = ib.qualifyContracts(contract)
-    logger.info(f"Front-month corn: {qualified.localSymbol}  conId={qualified.conId}")
-    return qualified
+def get_front_month(ib: IB, symbol: str) -> Future:
+    """Qualify and return the front-month futures contract for symbol."""
+    meta = FUTURES_CONTRACTS[symbol]
+    contract = Future(symbol=symbol, exchange=meta["exchange"], currency=meta["currency"])
+    qualified = ib.qualifyContracts(contract)
+    if not qualified:
+        raise ValueError(f"Could not qualify front-month contract for {symbol}")
+    front = qualified[0]
+    logger.info(f"Front-month {symbol}: {front.localSymbol}  conId={front.conId}")
+    return front
 
 
-# ── futures OHLCV history ─────────────────────────────────────────────────────
+def get_option_params(ib: IB, underlying: Future) -> pd.DataFrame:
+    """
+    Discover all valid strikes + expiries via reqSecDefOptParams.
+    Returns DataFrame columns: expiry, strike.
+    """
+    meta = FUTURES_CONTRACTS[underlying.symbol]
+    chains = ib.reqSecDefOptParams(
+        underlyingSymbol=underlying.symbol,
+        futFopExchange="",
+        underlyingSecType="FUT",
+        underlyingConId=underlying.conId,
+    )
+    target_exchange = meta["opt_exchange"]
+    filtered = [c for c in chains if c.exchange == target_exchange] or list(chains)
 
-def fetch_corn_futures_history(
+    rows = [
+        {"expiry": exp, "strike": float(s)}
+        for c in filtered
+        for exp in c.expirations
+        for s in c.strikes
+    ]
+    df = pd.DataFrame(rows).drop_duplicates().sort_values(["expiry", "strike"])
+    logger.info(f"Option params: {df['expiry'].nunique()} expiries, {df['strike'].nunique()} unique strikes")
+    return df
+
+
+def select_strikes_near_atm(
+    strikes: list[float],
+    atm: float,
+    max_strikes: int | None,
+) -> list[float]:
+    s = sorted(strikes)
+    if max_strikes is None:
+        return s
+    idx = min(range(len(s)), key=lambda i: abs(s[i] - atm))
+    half = max_strikes // 2
+    lo = max(0, idx - half)
+    hi = min(len(s), idx + half + (max_strikes % 2))
+    return s[lo:hi]
+
+
+# ── futures OHLCV ─────────────────────────────────────────────────────────────
+
+def fetch_futures_history(
     ib: IB,
     underlying: Future,
     history_days: int = IB_HISTORY_DAYS,
 ) -> pd.DataFrame:
-    """Fetch daily OHLCV history for the corn futures contract via reqHistoricalData."""
+    """Fetch daily OHLCV for a futures contract via reqHistoricalData."""
     logger.info(f"Fetching {history_days}d OHLCV for {underlying.localSymbol}…")
     bars: list[BarData] = ib.reqHistoricalData(
         underlying,
@@ -88,56 +133,15 @@ def fetch_corn_futures_history(
         "Close":  b.close,
         "Volume": b.volume,
     } for b in bars])
-
     df["Date"] = pd.to_datetime(df["Date"], utc=True)
     df = df.set_index("Date").sort_index()
     df["ticker"] = underlying.localSymbol
-    df["contract_name"] = "ZC"
-    logger.info(f"  {len(df)} daily bars retrieved")
+    df["symbol"] = underlying.symbol
+    logger.info(f"  {len(df)} daily bars")
     return df
 
 
 # ── options chain ─────────────────────────────────────────────────────────────
-
-def get_corn_option_params(ib: IB, underlying: Future) -> pd.DataFrame:
-    """
-    Discover valid strikes + expiries via reqSecDefOptParams.
-    Returns DataFrame with columns: expiry, strike.
-    """
-    chains = ib.reqSecDefOptParams(
-        underlyingSymbol=underlying.symbol,
-        futFopExchange="",
-        underlyingSecType="FUT",
-        underlyingConId=underlying.conId,
-    )
-    cbot = [c for c in chains if c.exchange == "CBOT"] or list(chains)
-
-    rows = [
-        {"expiry": exp, "strike": float(s)}
-        for c in cbot
-        for exp in c.expirations
-        for s in c.strikes
-    ]
-    df = pd.DataFrame(rows).drop_duplicates().sort_values(["expiry", "strike"])
-    logger.info(f"Option params: {df['expiry'].nunique()} expiries, {df['strike'].nunique()} unique strikes")
-    return df
-
-
-def select_strikes_near_atm(
-    strikes: list[float],
-    atm: float,
-    max_strikes: int | None = IB_MAX_STRIKES,
-) -> list[float]:
-    """Return up to max_strikes strikes centred on atm, sorted ascending."""
-    s = sorted(strikes)
-    if max_strikes is None:
-        return s
-    idx = min(range(len(s)), key=lambda i: abs(s[i] - atm))
-    half = max_strikes // 2
-    lo = max(0, idx - half)
-    hi = min(len(s), idx + half + (max_strikes % 2))
-    return s[lo:hi]
-
 
 def _ticker_to_row(ticker, expiry: str, option_type: str) -> dict:
     c = ticker.contract
@@ -164,39 +168,40 @@ def _ticker_to_row(ticker, expiry: str, option_type: str) -> dict:
     }
 
 
-def fetch_corn_options_chain(
+def fetch_options_chain(
     ib: IB,
     underlying: Future,
     atm_price: float,
-    max_expiries: int = IB_MAX_EXPIRIES,
+    expiries: list[str],
     max_strikes: int | None = IB_MAX_STRIKES,
 ) -> pd.DataFrame:
-    """Fetch options chain for corn futures. Requires an open IB connection."""
-    params = get_corn_option_params(ib, underlying)
-    if params.empty:
-        logger.error("No option params — check TWS market data subscriptions")
-        return pd.DataFrame()
-
-    expiries = sorted(params["expiry"].unique())[:max_expiries]
-    logger.info(f"Fetching options for {len(expiries)} expiries: {expiries}")
-
+    """
+    Fetch options market data for the given expiries.
+    expiries: list of YYYYMMDD strings to fetch (caller controls selection).
+    """
+    meta = FUTURES_CONTRACTS[underlying.symbol]
     rows: list[dict] = []
+
     for expiry in expiries:
-        strikes = select_strikes_near_atm(
-            params[params["expiry"] == expiry]["strike"].tolist(),
-            atm_price, max_strikes,
-        )
-        logger.info(f"  {expiry}: {len(strikes)} strikes (ATM≈{atm_price:.2f})")
+        # Fetch option params for this expiry's strikes
+        params = get_option_params(ib, underlying)
+        expiry_strikes = params[params["expiry"] == expiry]["strike"].tolist()
+        if not expiry_strikes:
+            logger.warning(f"  {expiry}: no strikes found")
+            continue
+
+        strikes = select_strikes_near_atm(expiry_strikes, atm_price, max_strikes)
+        logger.info(f"  {expiry}: {len(strikes)} strikes (ATM≈{atm_price:.4f})")
 
         contracts = [
             FuturesOption(
-                symbol="ZC",
+                symbol=underlying.symbol,
                 lastTradeDateOrContractMonth=expiry,
                 strike=strike,
                 right=right,
-                exchange="CBOT",
-                currency="USD",
-                multiplier="50",
+                exchange=meta["opt_exchange"],
+                currency=meta["currency"],
+                multiplier=meta["multiplier"],
             )
             for strike in strikes
             for right in ("C", "P")
@@ -209,58 +214,79 @@ def fetch_corn_options_chain(
         logger.info(f"  {expiry}: {len(qualified)} qualified")
 
         for i in range(0, len(qualified), 50):
-            batch = qualified[i:i + 50]
-            for ticker in ib.reqTickers(*batch):
+            for ticker in ib.reqTickers(*qualified[i:i + 50]):
                 right = ticker.contract.right
                 rows.append(_ticker_to_row(ticker, expiry, "call" if right == "C" else "put"))
             time.sleep(0.5)
 
     if not rows:
-        logger.error("No option rows collected")
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
     for col in ("volume", "open_interest"):
         df[col] = pd.array(df[col], dtype="Int64")
     df["iv_suspect"] = df["implied_volatility"].isna() | (df["implied_volatility"] == 0.0)
-    df["ticker"] = "ZC"
+    df["symbol"] = underlying.symbol
     return df.sort_values(["expiry", "option_type", "strike"]).reset_index(drop=True)
 
 
-# ── main entry point ──────────────────────────────────────────────────────────
+# ── discovery (lightweight — no market data) ──────────────────────────────────
 
-def fetch_all_corn_data(
+def discover_expiries(
+    symbol: str,
     host: str = IB_HOST,
     port: int = IB_PORT,
     client_id: int = IB_CLIENT_ID,
-    max_expiries: int = IB_MAX_EXPIRIES,
+) -> list[str]:
+    """
+    Quick TWS round-trip to get available option expiries for a symbol.
+    Does NOT fetch any market data — safe and fast.
+    Returns sorted list of YYYYMMDD expiry strings.
+    """
+    ib = connect(host, port, client_id)
+    try:
+        underlying = get_front_month(ib, symbol)
+        params = get_option_params(ib, underlying)
+        return sorted(params["expiry"].unique().tolist())
+    finally:
+        disconnect(ib)
+
+
+# ── main fetch ────────────────────────────────────────────────────────────────
+
+def fetch_all_data(
+    symbol: str,
+    expiries: list[str],
+    host: str = IB_HOST,
+    port: int = IB_PORT,
+    client_id: int = IB_CLIENT_ID,
     max_strikes: int | None = IB_MAX_STRIKES,
     history_days: int = IB_HISTORY_DAYS,
 ) -> dict[str, pd.DataFrame]:
     """
-    Single TWS connection → fetch ZC futures OHLCV + options chain.
-    Saves both to data/raw/ and returns {"futures": df, "options": df}.
+    Single TWS connection → fetch futures OHLCV + options for chosen expiries.
+    Saves futures_{symbol}_ib.parquet and options_{symbol}_ib.parquet.
+    Returns {"futures": df, "options": df}.
     """
+    if symbol not in FUTURES_CONTRACTS:
+        raise ValueError(f"Unknown symbol '{symbol}'. Add it to FUTURES_CONTRACTS in config.py.")
+
     ib = connect(host, port, client_id)
     results: dict[str, pd.DataFrame] = {}
     try:
-        underlying = get_front_month_corn(ib)
-
-        # Current price (used as ATM reference for strike selection)
+        underlying = get_front_month(ib, symbol)
         [und_ticker] = ib.reqTickers(underlying)
-        atm = und_ticker.last or und_ticker.close or 460.0
-        logger.info(f"ZC ATM price: {atm}")
+        atm = und_ticker.last or und_ticker.close or 0.0
+        logger.info(f"{symbol} ATM price: {atm}")
 
-        # 1. Futures OHLCV
-        hist = fetch_corn_futures_history(ib, underlying, history_days)
+        hist = fetch_futures_history(ib, underlying, history_days)
         if not hist.empty:
-            save_dataframe(hist, "futures_ZC_ib", DATA_RAW_DIR)
+            save_dataframe(hist, f"futures_{symbol}_ib", DATA_RAW_DIR)
             results["futures"] = hist
 
-        # 2. Options chain
-        opts = fetch_corn_options_chain(ib, underlying, atm, max_expiries, max_strikes)
+        opts = fetch_options_chain(ib, underlying, atm, expiries, max_strikes)
         if not opts.empty:
-            save_dataframe(opts, "options_ZC_corn_ib", DATA_RAW_DIR)
+            save_dataframe(opts, f"options_{symbol}_ib", DATA_RAW_DIR)
             results["options"] = opts
 
     finally:
@@ -271,7 +297,19 @@ def fetch_all_corn_data(
 
 
 if __name__ == "__main__":
-    data = fetch_all_corn_data()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--symbol", default="ZC", choices=list(FUTURES_CONTRACTS))
+    parser.add_argument("--expiries", nargs="+", help="YYYYMMDD expiry strings")
+    parser.add_argument("--max-expiries", type=int, default=IB_MAX_EXPIRIES)
+    args = parser.parse_args()
+
+    if not args.expiries:
+        all_exp = discover_expiries(args.symbol)
+        args.expiries = all_exp[:args.max_expiries]
+        print(f"Using expiries: {args.expiries}")
+
+    data = fetch_all_data(args.symbol, args.expiries)
     if "options" in data:
         df = data["options"]
         print(df[["expiry","option_type","strike","bid","ask","implied_volatility","delta","open_interest"]].head(30).to_string())
