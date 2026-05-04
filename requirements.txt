@@ -5,3 +5,4 @@ ib_insync>=0.9.86
 streamlit>=1.35
 plotly>=5.22
 pytest>=8.0
+numpy>=1.26
