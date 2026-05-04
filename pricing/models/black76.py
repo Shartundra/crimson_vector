@@ -1,3 +1,4 @@
+"""Black-76 closed-form pricing for European options on futures."""
 import math
 
 from pricing._types import GreeksResult
@@ -6,12 +7,10 @@ _SQRT_2PI = math.sqrt(2 * math.pi)
 
 
 def _ncdf(x: float) -> float:
-    """Standard normal CDF via math.erfc — no scipy required."""
     return math.erfc(-x / math.sqrt(2)) / 2
 
 
 def _npdf(x: float) -> float:
-    """Standard normal PDF."""
     return math.exp(-0.5 * x * x) / _SQRT_2PI
 
 
@@ -21,35 +20,34 @@ def price(
     T: float,
     r: float,
     sigma: float,
-    option_type: str,
+    call_put: str,
 ) -> GreeksResult:
     """
     Black-76 price and Greeks for a European option on a futures contract.
 
     Parameters
     ----------
-    F : futures price
-    K : strike price
-    T : time to expiry in years
-    r : risk-free rate (continuously compounded)
-    sigma : implied volatility
-    option_type : "call" or "put"
+    F        : futures price
+    K        : strike price
+    T        : time to expiry in years
+    r        : risk-free rate (continuously compounded)
+    sigma    : implied volatility
+    call_put : "call" or "put"
 
     Returns
     -------
     GreeksResult(price, delta, gamma, theta, vega, rho)
     Theta is annualised; divide by 365 for daily decay.
     """
-    opt = option_type.lower()
-    if opt not in ("call", "put"):
-        raise ValueError(f"option_type must be 'call' or 'put', got {option_type!r}")
+    cp = call_put.lower()
+    if cp not in ("call", "put"):
+        raise ValueError(f"call_put must be 'call' or 'put', got {call_put!r}")
 
     if F <= 0 or K <= 0:
         return GreeksResult(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
-    # Degenerate cases — return intrinsic value with binary delta
     if T <= 0 or sigma <= 0:
-        if opt == "call":
+        if cp == "call":
             intrinsic = max(F - K, 0.0)
             delta = 1.0 if F > K else 0.0
         else:
@@ -68,7 +66,7 @@ def price(
     n_neg_d2 = 1.0 - n_d2
     pdf_d1 = _npdf(d1)
 
-    if opt == "call":
+    if cp == "call":
         p = D * (F * n_d1 - K * n_d2)
         delta = D * n_d1
         theta = -F * D * pdf_d1 * sigma / (2 * sqrt_T) + r * D * (F * n_d1 - K * n_d2)
